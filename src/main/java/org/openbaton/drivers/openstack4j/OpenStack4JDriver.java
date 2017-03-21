@@ -18,9 +18,17 @@ package org.openbaton.drivers.openstack4j;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import java.io.BufferedReader;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
-import java.net.MalformedURLException;
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,6 +42,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.io.FileUtils;
 import org.openbaton.catalogue.mano.common.DeploymentFlavour;
 import org.openbaton.catalogue.mano.descriptor.VNFDConnectionPoint;
 import org.openbaton.catalogue.nfvo.NFVImage;
@@ -51,15 +60,16 @@ import org.openbaton.vim.drivers.interfaces.VimDriver;
 import org.openstack4j.api.Builders;
 import org.openstack4j.api.OSClient;
 import org.openstack4j.api.exceptions.AuthenticationException;
-import org.openstack4j.model.common.ActionResponse;
 import org.openstack4j.model.common.Identifier;
-import org.openstack4j.model.common.Payload;
-import org.openstack4j.model.common.Payloads;
 import org.openstack4j.model.compute.Address;
 import org.openstack4j.model.compute.Flavor;
 import org.openstack4j.model.compute.QuotaSet;
 import org.openstack4j.model.compute.ServerCreate;
+import org.openstack4j.model.identity.v2.Access;
+import org.openstack4j.model.identity.v2.Endpoint;
+import org.openstack4j.model.identity.v2.Service;
 import org.openstack4j.model.identity.v2.Tenant;
+import org.openstack4j.model.identity.v2.Token;
 import org.openstack4j.model.identity.v3.Project;
 import org.openstack4j.model.identity.v3.Region;
 import org.openstack4j.model.image.Image;
@@ -838,28 +848,9 @@ public class OpenStack4JDriver extends VimDriver {
   @Override
   public NFVImage addImage(final VimInstance vimInstance, NFVImage image, String image_url)
       throws VimDriverException {
+    log.debug("-------------------------- adding image");
     OSClient os = this.authenticate(vimInstance);
-    final Payload<URL> payload;
-    try {
-      payload = Payloads.create(new URL(image_url));
-    } catch (MalformedURLException e) {
-      e.printStackTrace();
-      throw new VimDriverException(e.getMessage(), e);
-    }
-    //    Image image4j =
-    //        os.images()
-    //            .create(
-    //                Builders.image()
-    //                    .name(image.getName())
-    //                    .isPublic(image.isPublic())
-    //                    .containerFormat(
-    //                        ContainerFormat.value(image.getContainerFormat().toUpperCase()))
-    //                    .diskFormat(DiskFormat.value(image.getDiskFormat().toUpperCase()))
-    //                    .minDisk(image.getMinDiskSpace())
-    //                    .minRam(image.getMinRam())
-    //                    .build(),
-    //                payload);
-    //    return Utils.getImage(image4j);
+    OSClient.OSClientV2 os2 = ((OSClient.OSClientV2) os);
 
     final org.openstack4j.model.image.v2.Image imageV2 =
         os.imagesV2()
@@ -880,22 +871,94 @@ public class OpenStack4JDriver extends VimDriver {
                     .minRam((int) image.getMinRam())
                     .build());
 
-    Thread t =
-        new Thread(
-            new Runnable() {
-              @Override
-              public void run() {
-                OSClient os = null;
-                try {
-                  os = authenticate(vimInstance);
-                } catch (VimDriverException e) {
-                  e.printStackTrace();
-                }
-                ActionResponse upload = os.imagesV2().upload(imageV2.getId(), payload, imageV2);
-              }
-            });
+    log.debug("---------------------------imageV2 is : " + imageV2);
+    HttpURLConnection connection = null;
 
-    t.start();
+    try {
+      // load the image file
+      log.debug("image_url is " + image_url);
+
+      // get the endpoint
+      List<? extends Access.Service> services = os2.getAccess().getServiceCatalog();
+      URI imagePublicEndpoint = null;
+
+      for (Access.Service service : services) {
+        if (service.getName().equals("glance")) {
+          List<? extends Endpoint> endpoints = service.getEndpoints();
+          // NOTE, this is just using the first endpoint.  That may not be the correct behavior
+          imagePublicEndpoint = endpoints.get(0).getPublicURL();
+          break;
+        }
+      }
+
+      if (null == imagePublicEndpoint) {
+        log.info("could not find image service endpoint");
+        return null;
+      }
+      log.debug("endpoint is " + imagePublicEndpoint);
+
+      // get token
+      Token token = os2.getAccess().getToken();
+
+      URL url = new URL(imagePublicEndpoint + imageV2.getFile());
+      connection = (HttpURLConnection) url.openConnection();
+      connection.setRequestMethod("PUT");
+      connection.setDoOutput(true);
+      connection.setRequestProperty("Content-Type", "application/octet-stream");
+      connection.setRequestProperty("User-Agent", "python-neutronclient");
+      connection.setRequestProperty("X-Auth-Token", token.getId());
+
+      // this shows the token so be careful about enabling this line of debug
+      //log.debug(
+      //    "--------------------- connection property fields: " + connection.getRequestProperties());
+
+
+      if (!image_url.startsWith("http")) {
+        // assume this is a file that is being uploaded
+        File file = new File(image_url);
+      
+        byte[] fileData = new byte[(int) file.length()];
+        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        int error = dis.read(fileData);
+        dis.close();
+
+        DataOutputStream out = new DataOutputStream(connection.getOutputStream());
+        out.write(fileData);
+        out.close();
+      } else {
+        URL remoteImageUrl = new URL(image_url);
+        InputStream is = remoteImageUrl.openStream();
+        DataOutputStream out = new DataOutputStream(connection.getOutputStream());
+        byte[] chunk = new byte[16384];
+        int n = 0;
+        while((n = is.read(chunk)) > 0) {
+          log.debug("n = " + n);
+          out.write(chunk, 0, n);
+        }
+        out.close();
+      }
+
+
+      //Get Response
+      InputStream is = connection.getInputStream();
+      BufferedReader rd = new BufferedReader(new InputStreamReader(is));
+      StringBuilder response = new StringBuilder(); // or StringBuffer if not Java 5+
+      String line;
+      while ((line = rd.readLine()) != null) {
+        response.append(line);
+        response.append('\r');
+      }
+      rd.close();
+
+    } catch (Exception ex) {
+      log.error(ex.getMessage(), ex);
+      log.debug("failed to create http url connection and read it");
+    } finally {
+      if (connection != null) {
+        connection.disconnect();
+      }
+    }
+
     return Utils.getImageV2(imageV2);
   }
 
@@ -959,6 +1022,7 @@ public class OpenStack4JDriver extends VimDriver {
   @Override
   public NFVImage addImage(VimInstance vimInstance, NFVImage image, byte[] imageFile)
       throws VimDriverException {
+    log.debug("-------------------------- adding image image file");
     throw new UnsupportedOperationException();
   }
 
