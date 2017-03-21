@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -191,6 +192,8 @@ public class OpenStack4JDriver extends VimDriver {
       OSClient os = this.authenticate(vimInstance);
       List<String> networks = getNetworkIdsFromNames(vimInstance, network);
 
+      LinkedHashMap<String, String> networksSprint =
+          getNetworkIdsAndIpsFromNames(vimInstance, network);
       String imageId = getImageIdFromName(vimInstance, image);
       log.debug("imageId: " + imageId);
       org.openstack4j.model.image.Image imageFromVim = os.images().get(imageId);
@@ -203,33 +206,60 @@ public class OpenStack4JDriver extends VimDriver {
       }
       Flavor flavor4j = getFlavorFromName(vimInstance, flavor);
       flavor = flavor4j.getId();
+      ServerCreate sc = null;
       // temporary workaround for getting first security group as it seems not supported adding multiple security groups
-      ServerCreate sc;
-      if (keypair == null || keypair.equals("")) {
-        sc =
-            Builders.server()
-                .name(name)
-                .flavor(flavor)
-                .image(imageId)
-                .networks(networks)
-                .userData(new String(Base64.encodeBase64(userData.getBytes())))
-                .build();
-      } else {
-        sc =
-            Builders.server()
-                .name(name)
-                .flavor(flavor)
-                .image(imageId)
-                .keypairName(keypair)
-                .networks(networks)
-                .userData(new String(Base64.encodeBase64(userData.getBytes())))
-                .build();
-      }
+      for (Map.Entry entry : networksSprint.entrySet()) {
 
+        //if (!"null"equals(entry.getValue().toString()))
+        if (entry.getValue() != null) {
+          if (keypair == null || keypair.equals("")) {
+            sc =
+                Builders.server()
+                    .name(name)
+                    .flavor(flavor)
+                    .image(imageId)
+                    .userData(new String(Base64.encodeBase64(userData.getBytes())))
+                    .build();
+          } else {
+            sc =
+                Builders.server()
+                    .name(name)
+                    .flavor(flavor)
+                    .image(imageId)
+                    .keypairName(keypair)
+                    .userData(new String(Base64.encodeBase64(userData.getBytes())))
+                    .build();
+          }
+          sc.addNetwork(entry.getKey().toString(), entry.getValue().toString());
+
+        } else {
+          if (keypair == null || keypair.equals("")) {
+            sc =
+                Builders.server()
+                    .name(name)
+                    .flavor(name)
+                    .flavor(flavor)
+                    .image(imageId)
+                    .networks(networks)
+                    .userData(new String(Base64.encodeBase64(userData.getBytes())))
+                    .build();
+
+          } else {
+            sc =
+                Builders.server()
+                    .name(name)
+                    .flavor(flavor)
+                    .image(imageId)
+                    .networks(networks)
+                    .keypairName(keypair)
+                    .userData(new String(Base64.encodeBase64(userData.getBytes())))
+                    .build();
+          }
+        }
+      }
       for (String sg : secGroup) {
         sc.addSecurityGroup(sg);
       }
-
       log.debug(
           "Keypair: "
               + keypair
@@ -250,6 +280,63 @@ public class OpenStack4JDriver extends VimDriver {
       throw vimDriverException;
     }
     return server;
+  }
+
+  private LinkedHashMap<String, String> getNetworkIdsAndIpsFromNames(
+      VimInstance vimInstance, Set<VNFDConnectionPoint> networks) throws VimDriverException {
+    {
+      OSClient os = authenticate(vimInstance);
+      LinkedHashMap<String, String> res = new LinkedHashMap<>();
+
+      List<? extends org.openstack4j.model.network.Network> networkList =
+          os.networking().network().list();
+
+      Collections.sort(networkList, new NetworkComparator());
+
+      Gson gson = new Gson();
+      String oldVNFDCP = gson.toJson(networks);
+      Set<VNFDConnectionPointOP> newNetworks =
+          gson.fromJson(oldVNFDCP, new TypeToken<Set<VNFDConnectionPointOP>>() {}.getType());
+
+      VNFDConnectionPointOP[] vnfdConnectionPoints =
+          newNetworks.toArray(new VNFDConnectionPointOP[0]);
+      Arrays.sort(
+          vnfdConnectionPoints,
+          new Comparator<VNFDConnectionPointOP>() {
+            @Override
+            public int compare(VNFDConnectionPointOP o1, VNFDConnectionPointOP o2) {
+              return o1.getInterfaceId() - o2.getInterfaceId();
+            }
+          });
+
+      String tenantId =
+          isV3API(vimInstance)
+              ? vimInstance.getTenant()
+              : getTenantFromName(os, vimInstance.getTenant());
+      for (VNFDConnectionPointOP vnfdConnectionPoint : vnfdConnectionPoints) {
+        boolean networkExists = false;
+        for (org.openstack4j.model.network.Network network4j : networkList) {
+          log.trace("Network " + network4j.getName() + " is shared? " + network4j.isShared());
+          if ((vnfdConnectionPoint.getVirtual_link_reference().equals(network4j.getName())
+                  || vnfdConnectionPoint.getVirtual_link_reference().equals(network4j.getId()))
+              && (network4j.getTenantId().equals(tenantId) || network4j.isShared())) {
+            if (!res.containsKey(network4j.getId())) {
+              res.put(network4j.getId(), vnfdConnectionPoint.getFixedIp());
+              networkExists = true;
+              break;
+            }
+          }
+        }
+        if (!networkExists) {
+          throw new VimDriverException(
+              "Not found Network '"
+                  + vnfdConnectionPoint.getVirtual_link_reference()
+                  + "'. Consider to refresh the VIM manually and try again ...");
+        }
+      }
+      log.debug("result " + res);
+      return res;
+    }
   }
 
   private Flavor getFlavorFromName(VimInstance vimInstance, String flavor)
