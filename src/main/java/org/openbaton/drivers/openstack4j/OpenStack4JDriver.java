@@ -42,7 +42,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.io.FileUtils;
 import org.openbaton.catalogue.mano.common.DeploymentFlavour;
 import org.openbaton.catalogue.mano.descriptor.VNFDConnectionPoint;
 import org.openbaton.catalogue.nfvo.NFVImage;
@@ -912,11 +911,10 @@ public class OpenStack4JDriver extends VimDriver {
       //log.debug(
       //    "--------------------- connection property fields: " + connection.getRequestProperties());
 
-
       if (!image_url.startsWith("http")) {
         // assume this is a file that is being uploaded
         File file = new File(image_url);
-      
+
         byte[] fileData = new byte[(int) file.length()];
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         int error = dis.read(fileData);
@@ -931,13 +929,12 @@ public class OpenStack4JDriver extends VimDriver {
         DataOutputStream out = new DataOutputStream(connection.getOutputStream());
         byte[] chunk = new byte[16384];
         int n = 0;
-        while((n = is.read(chunk)) > 0) {
+        while ((n = is.read(chunk)) > 0) {
           log.debug("n = " + n);
           out.write(chunk, 0, n);
         }
         out.close();
       }
-
 
       //Get Response
       InputStream is = connection.getInputStream();
