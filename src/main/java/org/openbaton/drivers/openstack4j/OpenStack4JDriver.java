@@ -924,6 +924,7 @@ public class OpenStack4JDriver extends VimDriver {
         out.write(fileData);
         out.close();
       } else {
+        // This doesn't appear to work
         URL remoteImageUrl = new URL(image_url);
         InputStream is = remoteImageUrl.openStream();
         DataOutputStream out = new DataOutputStream(connection.getOutputStream());
