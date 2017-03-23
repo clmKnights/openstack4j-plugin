@@ -925,16 +925,17 @@ public class OpenStack4JDriver extends VimDriver {
         out.close();
       } else {
         // This doesn't appear to work
-        URL remoteImageUrl = new URL(image_url);
-        InputStream is = remoteImageUrl.openStream();
-        DataOutputStream out = new DataOutputStream(connection.getOutputStream());
-        byte[] chunk = new byte[16384];
-        int n = 0;
-        while ((n = is.read(chunk)) > 0) {
-          log.debug("n = " + n);
-          out.write(chunk, 0, n);
-        }
-        out.close();
+        //URL remoteImageUrl = new URL(image_url);
+        //InputStream is = remoteImageUrl.openStream();
+        //DataOutputStream out = new DataOutputStream(connection.getOutputStream());
+        //byte[] chunk = new byte[16384];
+        //int n = 0;
+        //while ((n = is.read(chunk)) > 0) {
+        //  log.debug("n = " + n);
+        //  out.write(chunk, 0, n);
+        //}
+        //out.close();
+        throw new Exception("cannot currently handle remote urls");
       }
 
       //Get Response
