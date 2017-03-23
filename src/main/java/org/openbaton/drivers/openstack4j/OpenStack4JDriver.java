@@ -295,16 +295,15 @@ public class OpenStack4JDriver extends VimDriver {
 
       Gson gson = new Gson();
       String oldVNFDCP = gson.toJson(networks);
-      Set<VNFDConnectionPointOP> newNetworks =
-          gson.fromJson(oldVNFDCP, new TypeToken<Set<VNFDConnectionPointOP>>() {}.getType());
+      Set<VNFDConnectionPoint> newNetworks =
+          gson.fromJson(oldVNFDCP, new TypeToken<Set<VNFDConnectionPoint>>() {}.getType());
 
-      VNFDConnectionPointOP[] vnfdConnectionPoints =
-          newNetworks.toArray(new VNFDConnectionPointOP[0]);
+      VNFDConnectionPoint[] vnfdConnectionPoints = newNetworks.toArray(new VNFDConnectionPoint[0]);
       Arrays.sort(
           vnfdConnectionPoints,
-          new Comparator<VNFDConnectionPointOP>() {
+          new Comparator<VNFDConnectionPoint>() {
             @Override
-            public int compare(VNFDConnectionPointOP o1, VNFDConnectionPointOP o2) {
+            public int compare(VNFDConnectionPoint o1, VNFDConnectionPoint o2) {
               return o1.getInterfaceId() - o2.getInterfaceId();
             }
           });
@@ -313,7 +312,7 @@ public class OpenStack4JDriver extends VimDriver {
           isV3API(vimInstance)
               ? vimInstance.getTenant()
               : getTenantFromName(os, vimInstance.getTenant());
-      for (VNFDConnectionPointOP vnfdConnectionPoint : vnfdConnectionPoints) {
+      for (VNFDConnectionPoint vnfdConnectionPoint : vnfdConnectionPoints) {
         boolean networkExists = false;
         for (org.openstack4j.model.network.Network network4j : networkList) {
           log.trace("Network " + network4j.getName() + " is shared? " + network4j.isShared());
