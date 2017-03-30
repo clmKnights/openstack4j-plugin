@@ -1,6 +1,7 @@
 package org.openbaton.drivers.openstack4j.test;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -35,9 +36,9 @@ public class OpenStack4JDriverTest {
   public static void init() throws IOException {
     properties = new Properties();
     try {
-      properties.load(
-          new InputStreamReader(
-              OpenStack4JDriverTest.class.getResourceAsStream("/test.properties")));
+      InputStream is = OpenStack4JDriverTest.class.getResourceAsStream("/test.properties");
+      if (is == null) throw new IOException();
+      properties.load(new InputStreamReader(is));
     } catch (IOException e) {
       log.error("Missing 'test.properties' file, please use test.properties.default to create it");
     }
