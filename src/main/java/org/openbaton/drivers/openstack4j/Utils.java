@@ -1,10 +1,5 @@
 package org.openbaton.drivers.openstack4j;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
 import org.openbaton.catalogue.mano.common.DeploymentFlavour;
 import org.openbaton.catalogue.nfvo.NFVImage;
 import org.openbaton.catalogue.nfvo.Network;
@@ -19,6 +14,12 @@ import org.openstack4j.model.network.Subnet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+
 /** Created by lto on 10/01/2017. */
 class Utils {
   private static Logger log = LoggerFactory.getLogger(Utils.class);
@@ -27,7 +28,7 @@ class Utils {
     DeploymentFlavour deploymentFlavour = new DeploymentFlavour();
     deploymentFlavour.setFlavour_key(flavor4j.getName());
     deploymentFlavour.setExtId(flavor4j.getId());
-    deploymentFlavour.setDisk(flavor4j.getDisk());
+    deploymentFlavour.setDisk(new Integer(flavor4j.getDisk()));
     deploymentFlavour.setRam(flavor4j.getRam());
     deploymentFlavour.setVcpus(flavor4j.getVcpus());
     return deploymentFlavour;
